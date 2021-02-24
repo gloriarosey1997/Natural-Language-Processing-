@@ -1,11 +1,16 @@
 ---
 title: "NLP"
-author: "Charles Lang"
+author: "Yunzhao Wu"
+uni: "yw3607"
 ---
 
 ## Libraries
 ```{r}
 #Make sure you install and load the following libraries
+
+install.packages('RColorBrewer')
+install.packages('tidyverse')
+install.packages('NLP')
 
 library(tm)
 library(SnowballC)
@@ -15,7 +20,7 @@ library(tidyverse) #You will need the full tidyverse package not tidyr and dyplr
 library(topicmodels)
 
 #IF USING A MAC PLEASE RUN THIS CODE
-Sys.setlocale("LC_ALL", "C")
+#Sys.setlocale("LC_ALL", "C")
 ```
 
 ## In the class-notes folder you will find real csv files exported from real student's note taking in this class. Import all document files and the list of weeks file
@@ -23,7 +28,7 @@ Sys.setlocale("LC_ALL", "C")
 library(tidyverse)
 
 #Create a list of all the files, then loop over file list importing them and binding them together
-D1 <- list.files(path = "/YOUR FILE PATH/class-notes/",
+D1 <- list.files(path = "class-notes/",
                pattern = "*.csv", 
                full.names = T) %>% 
     map_df(~read_csv(., col_types = cols(.default = "c"))) 
@@ -42,15 +47,18 @@ D1$Notes <- gsub("nbspnbspnbsp", "" , D1$Notes)
 D1$Notes <- gsub("<U+00A0><U+00A0><U+00A0>", "" , D1$Notes)
 
 #Merge the weeks data with your notes data so that each line has a week attributed to it 
+week <- read.csv('week-list.csv')
+D1_week <- merge(D1,week,all = TRUE)
 
 #Also remove readings not belonging to the class (IE - that are NA for week)
+D1_week1 <- subset(D1_week, week != 'NA')
 
 ```
 
 ## Step 2 - Process text using the tm package
 ```{r}
 #Convert the data frame to the corpus format that the tm package uses
-corpus <- VCorpus(VectorSource(D1$Notes))
+corpus <- VCorpus(VectorSource(D1_week1$Notes))
 #Remove spaces
 corpus <- tm_map(corpus, stripWhitespace)
 #Convert to lower case
@@ -74,6 +82,12 @@ tdm.corpus <- TermDocumentMatrix(corpus)
 
 What processing steps have you conducted here? Why is this important? Are there any other steps you should take to process your text before analyzing?
 
+```{r}
+# Here we use tm packages to prepare the data in pre-processing period. We remove the spaces, conver to lower case, remove pre-defined stop words, etc.
+# It is important because it can help us remove unnecessary info.
+# Match words in corpus to lexicons of positive & negative words
+```
+
 ## Step 3 - Find common words
 ```{r}
 #The tm package can do some simple analysis, like find the most common words
@@ -82,15 +96,30 @@ findFreqTerms(tdm.corpus, lowfreq=500, highfreq=Inf)
 word.count <- sort(rowSums(as.matrix(tdm.corpus)), decreasing=TRUE)
 word.count <- data.frame(word.count)
 #Look at the word.count dataframe
+word.count
 ```
 
 ## Generate a Word Cloud
+
+```{r}
+# install and library packages
+
+install.packages('RColorBrewer')
+library('RColorBrewer')
+
+install.packages('wordcloud')
+library('wordcloud')
+
+```
+
 
 ### ColorBrewer
 ColorBrewer is a useful tool to help you choose colors for visualizations that was originally built for cartographers. On the ColorBrewer website (http://colorbrewer2.org/#) you can test different color schemes or see what their preset color schemes look like. This is very useful, especially if you are making images for colorblind individuals. 
 ```{r}
 #Define the colors the cloud will use
+
 col=brewer.pal(6,"Dark2")
+
 #Generate cloud, make sure your window is large enough to see it
 wordcloud(corpus, min.freq=500, scale=c(5,2),rot.per = 0.25,
           random.color=T, max.word=45, random.order=F,colors=col)
@@ -105,22 +134,30 @@ positive <- readLines("positive-words.txt")
 negative <- readLines("negative-words.txt")
 
 #Search for matches between each word and the two lexicons
-D1$positive <- tm_term_score(tdm.corpus, positive)
-D1$negative <- tm_term_score(tdm.corpus, negative)
+D1_week1$positive <- tm_term_score(tdm.corpus, positive)
+D1_week1$negative <- tm_term_score(tdm.corpus, negative)
 
 #Generate an overall pos-neg score for each line
-D1$score <- D1$positive - D1$negative
+D1_week1$score <- D1_week1$positive - D1_week1$negative
 
 ```
 
 ## Using ggplot Generate a visualization of the mean sentiment score over weeks, remove rows that have readings from other classes (NA for weeks). You will need to summarize your data to achieve this.
 ```{r}
+library(dplyr)
+
+df <- D1_week1 %>% group_by(week) %>% summarise(score_mean = mean(score))
+pic <- ggplot(df, aes(week, score_mean)) + geom_line() + xlab("week") + ylab("mean sentiment score")
+plot(pic)
 
 ```
 
 # LDA Topic Modelling
 
 Using the same csv file you have generated the LDA analysis will treat each row of the data frame as a document. Does this make sense for generating topics?
+```{r}
+# Yes
+```
 
 ```{r}
 #Term Frequency Inverse Document Frequency
@@ -134,25 +171,73 @@ rowTotals <- apply(dtm.tfi , 1, sum) #Find the sum of words in each Document
 dtm.tfi2   <- dtm.tfi[rowTotals> 0, ] #Divide by sum across rows
 
 #Identify rows with zero entries
-which(rowTotals %in% c(0))
+zero_entries <- which(rowTotals %in% c(0))
 
 #Remove these rows from original dataset
-#D1 <- D1[-c(?,?),]
+D1_week2 <- D1_week1[-zero_entries,]
 
 #Generate LDA model, k is the number of topics and the seed is a random number to start the process
-lda.model = LDA(dtm.tfi, k = 5, seed = 150)
+lda.model = LDA(dtm.tfi2, k = 5, seed = 150)
 
 #Which terms are most common in each topic
 terms(lda.model, k = 10) 
 
 #Identify which documents belong to which topics based on the notes taken by the student
-D1$topic <- topics(lda.model)
+D1_week2$topic <- topics(lda.model)
 
 ```
 
 What does an LDA topic represent? 
+```{r}
+# LDA (Latent Dirichlet Allocation) is a set of topics, each topic represents a set of words.It is used to classify text into different topics.
+```
+
 
 # Final Task 
 
 Find a set of documents, perhaps essays you have written or articles you have available and complete an LDA analysis of those documents. Does the method group documents as you would expect?
+
+```{r}
+D2 <- list.files(path = "Reflection/",
+               pattern = "*.docx", 
+               full.names = T)
+
+
+corpus1 <- VCorpus(VectorSource(D2))
+
+corpus1 <- tm_map(corpus1, stripWhitespace)
+
+corpus1 <- tm_map(corpus1, tolower)
+
+corpus1 <- tm_map(corpus1, removeWords, stopwords('english'))
+
+corpus1 <- tm_map(corpus1, stemDocument)
+
+corpus1 <- tm_map(corpus1,removeNumbers)
+
+corpus1 <- tm_map(corpus1, removePunctuation)
+
+corpus1 <- tm_map(corpus1, PlainTextDocument, lazy = TRUE)
+
+tdm.corpus1 <- TermDocumentMatrix(corpus1)
+
+dtm.tfi3 <- DocumentTermMatrix(corpus1, control = list(weighting = weightTf))
+
+dtm.tfi3 <- dtm.tfi3[,dtm.tfi3$v >= 0.1]
+
+rowTotals <- apply(dtm.tfi3 , 1, sum)
+
+dtm.tfi4   <- dtm.tfi3[rowTotals> 0, ]
+
+which(rowTotals %in% c(0))
+
+lda.model = LDA(dtm.tfi4, k = 5, seed = 150)
+
+terms(lda.model, k = 10)
+
+D2$topic <- topics(lda.model)
+
+
+
+```
 
